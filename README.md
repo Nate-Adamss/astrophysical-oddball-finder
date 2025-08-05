@@ -64,13 +64,6 @@ astrophysical-oddball-finder/
 5. Train models and generate anomaly rankings
 6. Launch the interactive dashboard
 
-## Timeline
-- **Weeks 1-3**: Data acquisition and preprocessing
-- **Week 4**: Exploratory data analysis
-- **Weeks 5-7**: Model development and training
-- **Weeks 8-9**: Validation and cross-matching
-- **Weeks 10-11**: Dashboard development
-- **Weeks 12-13**: Documentation and publication
 
 ## Expected Outcomes
 - Ranked list of stellar anomalies with confidence scores
