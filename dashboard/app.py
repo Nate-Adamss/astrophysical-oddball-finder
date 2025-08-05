@@ -88,6 +88,20 @@ def load_anomaly_scores():
         st.error(f"Error loading anomaly scores: {e}")
         return None
 
+def create_simbad_url(ra, dec, radius=2):
+    """Create SIMBAD coordinate search URL."""
+    return f"https://simbad.u-strasbg.fr/simbad/sim-coo?Coord={ra}+{dec}&Radius={radius}&Radius.unit=arcsec"
+
+def add_simbad_links(df):
+    """Add SIMBAD links to dataframe."""
+    if 'ra' in df.columns and 'dec' in df.columns:
+        # Create clickable links using HTML
+        df['View in SIMBAD'] = df.apply(
+            lambda row: f'<a href="{create_simbad_url(row["ra"], row["dec"])}" target="_blank">🔗 SIMBAD</a>',
+            axis=1
+        )
+    return df
+
 def create_hr_diagram(df, anomaly_data=None, highlight_source=None):
     """Create interactive HR diagram."""
     
@@ -303,26 +317,58 @@ def main():
         # Display options
         show_all_columns = st.checkbox("Show all columns", value=False)
         
+        # Create a copy of selected_results for display
+        display_results = selected_results.copy()
+        
+        # Add SIMBAD links
+        if 'ra' in display_results.columns and 'dec' in display_results.columns:
+            display_results['View in SIMBAD'] = display_results.apply(
+                lambda row: f"https://simbad.u-strasbg.fr/simbad/sim-coo?Coord={row['ra']}+{row['dec']}&Radius=2&Radius.unit=arcsec",
+                axis=1
+            )
+        
         if show_all_columns:
-            display_df = selected_results
+            display_df = display_results
         else:
             # Show key columns only
             key_columns = ['rank', 'source_id', 'ra', 'dec', 'anomaly_score']
-            if 'v_tan_km_s' in selected_results.columns:
+            if 'v_tan_km_s' in display_results.columns:
                 key_columns.append('v_tan_km_s')
-            if 'abs_g_mag' in selected_results.columns:
+            if 'abs_g_mag' in display_results.columns:
                 key_columns.append('abs_g_mag')
-            if 'bp_rp' in selected_results.columns:
+            if 'bp_rp' in display_results.columns:
                 key_columns.append('bp_rp')
             
-            available_columns = [col for col in key_columns if col in selected_results.columns]
-            display_df = selected_results[available_columns]
+            # Always include SIMBAD column if available
+            if 'View in SIMBAD' in display_results.columns:
+                key_columns.append('View in SIMBAD')
+            
+            available_columns = [col for col in key_columns if col in display_results.columns]
+            display_df = display_results[available_columns]
         
+        # Display the dataframe with clickable links
         st.dataframe(
             display_df,
             use_container_width=True,
-            height=400
+            height=400,
+            column_config={
+                "View in SIMBAD": st.column_config.LinkColumn(
+                    "View in SIMBAD",
+                    help="Click to open SIMBAD at this source's coordinates",
+                    validate="^https://.*",
+                    max_chars=100,
+                    display_text="🔗 SIMBAD"
+                )
+            } if 'View in SIMBAD' in display_df.columns else None
         )
+        
+        # Information about SIMBAD integration
+        if 'View in SIMBAD' in display_df.columns:
+            st.info("""
+            **🔗 SIMBAD Integration:** Click the SIMBAD links to instantly validate anomalies!
+            Each link opens SIMBAD's coordinate search at the source's RA/Dec with a 2 arcsecond radius.
+            This helps you quickly identify if the anomaly corresponds to a known astronomical object.
+            """)
         
         # Download button
         csv = selected_results.to_csv(index=False)
