@@ -12,6 +12,20 @@ from plotly.subplots import make_subplots
 import joblib
 import os
 import sys
+import io
+import time
+from sklearn.ensemble import IsolationForest
+from sklearn.preprocessing import StandardScaler
+from sklearn.neural_network import MLPRegressor
+from sklearn.cluster import DBSCAN
+try:
+    from astroquery.simbad import Simbad
+    import astropy.units as u
+    from astropy.coordinates import SkyCoord
+    SIMBAD_AVAILABLE = True
+except ImportError:
+    SIMBAD_AVAILABLE = False
+    st.warning("astroquery not available. SIMBAD cross-matching will be limited.")
 
 # Add src to path
 sys.path.append('../src')
@@ -350,6 +364,121 @@ def add_simbad_links(df):
         )
     return df
 
+def validate_gaia_columns(df):
+    """Validate that uploaded dataframe contains required Gaia DR3 columns."""
+    required_columns = ['source_id', 'ra', 'dec', 'parallax', 'pmra', 'pmdec', 'phot_g_mean_mag', 'bp_rp']
+    missing_columns = [col for col in required_columns if col not in df.columns]
+    
+    if missing_columns:
+        return False, missing_columns
+    return True, []
+
+def create_sample_data():
+    """Create sample Gaia DR3 data for download."""
+    sample_data = {
+        'source_id': [1234567890123456789, 9876543210987654321, 5555555555555555555],
+        'ra': [123.456789, 234.567890, 345.678901],
+        'dec': [45.123456, -30.987654, 12.345678],
+        'parallax': [10.5, 2.3, 0.8],
+        'pmra': [15.2, -8.7, 3.1],
+        'pmdec': [-12.8, 22.4, -5.9],
+        'phot_g_mean_mag': [12.5, 15.8, 18.2],
+        'bp_rp': [0.8, 1.2, 1.6]
+    }
+    return pd.DataFrame(sample_data)
+
+def cross_match_simbad(df, max_sources=100):
+    """Cross-match sources with SIMBAD database."""
+    if not SIMBAD_AVAILABLE:
+        df['simbad_type'] = 'N/A (astroquery not available)'
+        return df
+    
+    # Limit to prevent timeout
+    df_subset = df.head(max_sources).copy()
+    df_subset['simbad_type'] = 'Unknown'
+    
+    # Configure SIMBAD query
+    simbad = Simbad()
+    simbad.add_votable_fields('otype')
+    
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+    
+    for i, (idx, row) in enumerate(df_subset.iterrows()):
+        try:
+            # Update progress
+            progress = (i + 1) / len(df_subset)
+            progress_bar.progress(progress)
+            status_text.text(f"Cross-matching with SIMBAD: {i+1}/{len(df_subset)} sources")
+            
+            # Query SIMBAD
+            coord = SkyCoord(ra=row['ra']*u.degree, dec=row['dec']*u.degree, frame='icrs')
+            result = simbad.query_region(coord, radius=2*u.arcsec)
+            
+            if result and len(result) > 0:
+                # Get the closest match
+                obj_type = result['OTYPE'][0] if 'OTYPE' in result.colnames else 'Unknown'
+                df_subset.loc[idx, 'simbad_type'] = str(obj_type)
+            else:
+                df_subset.loc[idx, 'simbad_type'] = 'Not found'
+                
+            # Small delay to avoid overwhelming SIMBAD
+            time.sleep(0.1)
+            
+        except Exception as e:
+            df_subset.loc[idx, 'simbad_type'] = f'Error: {str(e)[:20]}...'
+            continue
+    
+    progress_bar.empty()
+    status_text.empty()
+    
+    # For sources beyond max_sources, mark as not queried
+    if len(df) > max_sources:
+        remaining_df = df.iloc[max_sources:].copy()
+        remaining_df['simbad_type'] = 'Not queried (limit reached)'
+        df_subset = pd.concat([df_subset, remaining_df], ignore_index=True)
+    
+    return df_subset
+
+def run_anomaly_detection_on_upload(df, threshold_percentile=99):
+    """Run anomaly detection on uploaded data."""
+    # Prepare features (similar to preprocessing.py)
+    feature_columns = ['parallax', 'pmra', 'pmdec', 'phot_g_mean_mag', 'bp_rp']
+    
+    # Remove rows with NaN values in key columns
+    df_clean = df.dropna(subset=feature_columns).copy()
+    
+    if len(df_clean) == 0:
+        st.error("No valid data remaining after removing NaN values.")
+        return df
+    
+    # Add derived features
+    df_clean['abs_g_mag'] = df_clean['phot_g_mean_mag'] + 5 * np.log10(df_clean['parallax']/100)
+    df_clean['v_tan_km_s'] = 4.74 * np.sqrt(df_clean['pmra']**2 + df_clean['pmdec']**2) / df_clean['parallax']
+    
+    # Select features for ML
+    ml_features = ['parallax', 'pmra', 'pmdec', 'phot_g_mean_mag', 'bp_rp', 'abs_g_mag', 'v_tan_km_s']
+    X = df_clean[ml_features].fillna(df_clean[ml_features].median())
+    
+    # Normalize features
+    scaler = StandardScaler()
+    X_scaled = scaler.fit_transform(X)
+    
+    # Run Isolation Forest
+    iso_forest = IsolationForest(contamination=(100-threshold_percentile)/100, random_state=42)
+    anomaly_labels = iso_forest.fit_predict(X_scaled)
+    anomaly_scores = iso_forest.decision_function(X_scaled)
+    
+    # Add results to dataframe
+    df_clean['anomaly_score'] = anomaly_scores
+    df_clean['is_anomaly'] = anomaly_labels == -1
+    
+    # Rank by anomaly score
+    df_clean = df_clean.sort_values('anomaly_score', ascending=True).reset_index(drop=True)
+    df_clean['rank'] = range(1, len(df_clean) + 1)
+    
+    return df_clean
+
 def create_hr_diagram(df, anomaly_data=None, highlight_source=None):
     """Create interactive HR diagram."""
     
@@ -615,7 +744,7 @@ def main():
         """, unsafe_allow_html=True)
     
     # Tabs for different views
-    tab1, tab2, tab3, tab4 = st.tabs(["🌟 HR Diagram", "📊 Anomaly List", "📈 Statistics", "🔍 Source Details"])
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["🌟 HR Diagram", "📊 Anomaly List", "📈 Statistics", "🔍 Source Details", "📤 Upload Data"])
     
     with tab1:
         st.subheader("Interactive Hertzsprung-Russell Diagram")
@@ -788,6 +917,316 @@ def main():
             - [SIMBAD Query](http://simbad.u-strasbg.fr/simbad/sim-coo?Coord={source_data['ra']}+{source_data['dec']}&CooFrame=FK5&CooEpoch=2000&CooEqui=2000&CooDefinedFrames=none&Radius=10&Radius.unit=arcsec&submit=submit+query)
             - [Gaia Archive](https://gea.esac.esa.int/archive/)
             """)
+    
+    with tab5:
+        st.markdown("""
+        <div style="
+            background: linear-gradient(135deg, rgba(100, 181, 246, 0.05), rgba(33, 150, 243, 0.02));
+            border: 1px solid rgba(100, 181, 246, 0.2);
+            border-radius: 15px;
+            padding: 1.5rem;
+            margin-bottom: 2rem;
+        ">
+            <h3 style="color: #64b5f6; text-align: center; margin-bottom: 1rem;">🚀 Upload Your Gaia DR3 Dataset</h3>
+            <p style="color: rgba(255, 255, 255, 0.9); text-align: center; margin-bottom: 1rem;">
+                Analyze your own stellar data with our advanced anomaly detection pipeline
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # Upload interface
+        col1, col2 = st.columns([2, 1])
+        
+        with col1:
+            st.markdown("""
+            <div style="
+                background: rgba(100, 181, 246, 0.05);
+                border: 1px solid rgba(100, 181, 246, 0.2);
+                border-radius: 10px;
+                padding: 1rem;
+                margin-bottom: 1rem;
+            ">
+                <h4 style="color: #42a5f5; margin-bottom: 0.5rem;">📁 Required Columns</h4>
+                <p style="color: rgba(255, 255, 255, 0.8); font-size: 0.9rem; margin-bottom: 0.5rem;">
+                    Your CSV file must contain these Gaia DR3 columns:
+                </p>
+                <ul style="color: rgba(255, 255, 255, 0.7); font-size: 0.85rem; margin: 0;">
+                    <li><code>source_id</code> - Gaia source identifier</li>
+                    <li><code>ra, dec</code> - Right ascension and declination (degrees)</li>
+                    <li><code>parallax</code> - Parallax (mas)</li>
+                    <li><code>pmra, pmdec</code> - Proper motion (mas/yr)</li>
+                    <li><code>phot_g_mean_mag</code> - G-band magnitude</li>
+                    <li><code>bp_rp</code> - BP-RP color index</li>
+                </ul>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            # File upload
+            uploaded_file = st.file_uploader(
+                "Choose your Gaia DR3 CSV file",
+                type=['csv'],
+                help="Upload a CSV file containing Gaia DR3 stellar data"
+            )
+        
+        with col2:
+            # Sample data download
+            sample_df = create_sample_data()
+            csv_sample = sample_df.to_csv(index=False)
+            
+            st.markdown("""
+            <div style="
+                background: rgba(76, 175, 80, 0.05);
+                border: 1px solid rgba(76, 175, 80, 0.2);
+                border-radius: 10px;
+                padding: 1rem;
+                text-align: center;
+            ">
+                <h4 style="color: #4caf50; margin-bottom: 0.5rem;">📎 Sample Data</h4>
+                <p style="color: rgba(255, 255, 255, 0.8); font-size: 0.9rem; margin-bottom: 1rem;">
+                    Download a sample file to see the expected format
+                </p>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            st.download_button(
+                label="📥 Download Sample CSV",
+                data=csv_sample,
+                file_name="gaia_dr3_sample.csv",
+                mime="text/csv",
+                help="Download this sample to see the required format"
+            )
+        
+        # Process uploaded file
+        if uploaded_file is not None:
+            try:
+                # Read uploaded file
+                user_df = pd.read_csv(uploaded_file)
+                
+                # Validate columns
+                is_valid, missing_cols = validate_gaia_columns(user_df)
+                
+                if not is_valid:
+                    st.error(f"""
+                    **Missing required columns:** {', '.join(missing_cols)}
+                    
+                    Please ensure your CSV file contains all required Gaia DR3 columns.
+                    Download the sample file above to see the expected format.
+                    """)
+                else:
+                    st.success(f"✅ File validated successfully! Found {len(user_df):,} sources.")
+                    
+                    # Advanced controls
+                    st.markdown("""
+                    <div style="
+                        background: rgba(156, 39, 176, 0.05);
+                        border: 1px solid rgba(156, 39, 176, 0.2);
+                        border-radius: 10px;
+                        padding: 1rem;
+                        margin: 1rem 0;
+                    ">
+                        <h4 style="color: #9c27b0; margin-bottom: 1rem;">⚙️ Analysis Settings</h4>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                    col1, col2, col3 = st.columns(3)
+                    
+                    with col1:
+                        threshold_percentile = st.slider(
+                            "Anomaly Threshold (Top %)",
+                            min_value=90.0,
+                            max_value=99.9,
+                            value=99.0,
+                            step=0.1,
+                            help="Percentage of sources to consider as normal (higher = fewer anomalies)"
+                        )
+                    
+                    with col2:
+                        max_simbad_sources = st.number_input(
+                            "Max SIMBAD Cross-matches",
+                            min_value=10,
+                            max_value=500,
+                            value=100,
+                            step=10,
+                            help="Limit SIMBAD queries to prevent timeout"
+                        )
+                    
+                    with col3:
+                        expected_anomalies = int(len(user_df) * (100 - threshold_percentile) / 100)
+                        st.metric(
+                            "Expected Anomalies",
+                            f"{expected_anomalies:,}",
+                            help=f"Approximately {expected_anomalies} sources will be flagged as anomalies"
+                        )
+                    
+                    # Process button
+                    if st.button("🚀 Analyze Dataset", type="primary"):
+                        with st.spinner("Running anomaly detection..."):
+                            # Run anomaly detection
+                            processed_df = run_anomaly_detection_on_upload(user_df, threshold_percentile)
+                            
+                            if len(processed_df) > 0:
+                                # Get anomalies only
+                                anomalies_df = processed_df[processed_df['is_anomaly']].copy()
+                                
+                                st.success(f"✅ Analysis complete! Found {len(anomalies_df):,} anomalies.")
+                                
+                                # Cross-match with SIMBAD
+                                if len(anomalies_df) > 0 and SIMBAD_AVAILABLE:
+                                    st.info("🔍 Starting SIMBAD cross-match...")
+                                    anomalies_df = cross_match_simbad(anomalies_df, max_simbad_sources)
+                                
+                                # Add SIMBAD links
+                                anomalies_df['View in SIMBAD'] = anomalies_df.apply(
+                                    lambda row: f"https://simbad.u-strasbg.fr/simbad/sim-coo?Coord={row['ra']}+{row['dec']}&Radius=2&Radius.unit=arcsec",
+                                    axis=1
+                                )
+                                
+                                # Store in session state for persistence
+                                st.session_state['user_anomalies'] = anomalies_df
+                                st.session_state['user_full_data'] = processed_df
+                    
+                    # Display results if available
+                    if 'user_anomalies' in st.session_state:
+                        anomalies_df = st.session_state['user_anomalies']
+                        processed_df = st.session_state['user_full_data']
+                        
+                        st.markdown("""
+                        <div style="
+                            background: linear-gradient(135deg, rgba(255, 193, 7, 0.1), rgba(255, 152, 0, 0.05));
+                            border: 1px solid rgba(255, 193, 7, 0.3);
+                            border-radius: 15px;
+                            padding: 1.5rem;
+                            margin: 2rem 0;
+                        ">
+                            <h3 style="color: #ffc107; text-align: center; margin-bottom: 1rem;">🎆 User Dataset Results</h3>
+                        </div>
+                        """, unsafe_allow_html=True)
+                        
+                        # Results tabs
+                        result_tab1, result_tab2, result_tab3 = st.tabs(["📊 Anomaly Table", "🌟 HR Diagram", "📥 Export"])
+                        
+                        with result_tab1:
+                            st.subheader(f"Top {len(anomalies_df)} Anomalies in Your Dataset")
+                            
+                            # Display columns selection
+                            show_all_cols = st.checkbox("Show all columns", value=False, key="user_show_all")
+                            
+                            if show_all_cols:
+                                display_cols = anomalies_df.columns.tolist()
+                            else:
+                                display_cols = ['rank', 'source_id', 'ra', 'dec', 'anomaly_score']
+                                if 'simbad_type' in anomalies_df.columns:
+                                    display_cols.append('simbad_type')
+                                if 'View in SIMBAD' in anomalies_df.columns:
+                                    display_cols.append('View in SIMBAD')
+                                
+                                # Add other key columns if available
+                                for col in ['v_tan_km_s', 'abs_g_mag', 'bp_rp']:
+                                    if col in anomalies_df.columns:
+                                        display_cols.append(col)
+                            
+                            available_cols = [col for col in display_cols if col in anomalies_df.columns]
+                            display_df = anomalies_df[available_cols]
+                            
+                            # Display with enhanced styling
+                            st.dataframe(
+                                display_df,
+                                use_container_width=True,
+                                height=400,
+                                column_config={
+                                    "View in SIMBAD": st.column_config.LinkColumn(
+                                        "View in SIMBAD",
+                                        help="Click to open SIMBAD at this source's coordinates",
+                                        validate="^https://.*",
+                                        max_chars=100,
+                                        display_text="🔗 SIMBAD"
+                                    )
+                                } if 'View in SIMBAD' in display_df.columns else None
+                            )
+                            
+                            # SIMBAD integration info
+                            if 'simbad_type' in anomalies_df.columns:
+                                st.info("""
+                                🔗 **SIMBAD Cross-match Results:** Object types have been automatically retrieved from SIMBAD.
+                                Click the SIMBAD links to explore each source in detail and validate the anomaly detection.
+                                """)
+                        
+                        with result_tab2:
+                            st.subheader("HR Diagram - Your Dataset")
+                            
+                            if len(processed_df) > 0:
+                                # Create HR diagram for user data
+                                hr_fig = create_hr_diagram(processed_df, anomalies_df)
+                                st.plotly_chart(hr_fig, use_container_width=True)
+                                
+                                st.info("""
+                                **Your Data HR Diagram:** Normal sources are shown in blue, anomalies are highlighted as stars.
+                                The color intensity represents the anomaly score - darker colors indicate more unusual objects.
+                                """)
+                            else:
+                                st.warning("No data available for HR diagram.")
+                        
+                        with result_tab3:
+                            st.subheader("Export Your Results")
+                            
+                            col1, col2 = st.columns(2)
+                            
+                            with col1:
+                                # Export anomalies only
+                                anomalies_csv = anomalies_df.to_csv(index=False)
+                                st.download_button(
+                                    label="📥 Download Anomalies CSV",
+                                    data=anomalies_csv,
+                                    file_name="user_dataset_anomalies.csv",
+                                    mime="text/csv",
+                                    help="Download only the detected anomalies with SIMBAD classifications"
+                                )
+                            
+                            with col2:
+                                # Export full processed dataset
+                                full_csv = processed_df.to_csv(index=False)
+                                st.download_button(
+                                    label="📥 Download Full Processed Dataset",
+                                    data=full_csv,
+                                    file_name="user_dataset_processed.csv",
+                                    mime="text/csv",
+                                    help="Download the complete dataset with anomaly scores and derived features"
+                                )
+                            
+                            # Summary statistics
+                            st.markdown("""
+                            <div style="
+                                background: rgba(33, 150, 243, 0.05);
+                                border: 1px solid rgba(33, 150, 243, 0.2);
+                                border-radius: 10px;
+                                padding: 1rem;
+                                margin-top: 1rem;
+                            ">
+                                <h4 style="color: #2196f3; margin-bottom: 0.5rem;">📈 Analysis Summary</h4>
+                            </div>
+                            """, unsafe_allow_html=True)
+                            
+                            summary_col1, summary_col2, summary_col3 = st.columns(3)
+                            
+                            with summary_col1:
+                                st.metric("Total Sources", f"{len(processed_df):,}")
+                            
+                            with summary_col2:
+                                st.metric("Anomalies Found", f"{len(anomalies_df):,}")
+                            
+                            with summary_col3:
+                                anomaly_rate = (len(anomalies_df) / len(processed_df)) * 100 if len(processed_df) > 0 else 0
+                                st.metric("Anomaly Rate", f"{anomaly_rate:.2f}%")
+                            
+                            if 'simbad_type' in anomalies_df.columns:
+                                st.markdown("**SIMBAD Classifications:**")
+                                simbad_counts = anomalies_df['simbad_type'].value_counts()
+                                for obj_type, count in simbad_counts.head(10).items():
+                                    st.text(f"• {obj_type}: {count} sources")
+            
+            except Exception as e:
+                st.error(f"Error processing file: {str(e)}")
+                st.info("Please ensure your file is a valid CSV with the required Gaia DR3 columns.")
     
     # Footer
     st.markdown("---")
