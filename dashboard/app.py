@@ -20,25 +20,273 @@ from visualization import StellarVisualization
 # Page configuration
 st.set_page_config(
     page_title="Astrophysical Oddball Finder",
-    page_icon="⭐",
+    page_icon="🌌",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS
+# Enhanced Custom CSS with Astronomy Theme
 st.markdown("""
 <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+    
+    /* Global Styling */
+    .stApp {
+        background: linear-gradient(135deg, #0c1445 0%, #1a1a2e 25%, #16213e 50%, #0f3460 75%, #0c1445 100%);
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    }
+    
+    /* Animated Starfield Background */
+    .stApp::before {
+        content: '';
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background-image: 
+            radial-gradient(2px 2px at 20px 30px, #eee, transparent),
+            radial-gradient(2px 2px at 40px 70px, rgba(255,255,255,0.8), transparent),
+            radial-gradient(1px 1px at 90px 40px, #fff, transparent),
+            radial-gradient(1px 1px at 130px 80px, rgba(255,255,255,0.6), transparent),
+            radial-gradient(2px 2px at 160px 30px, #fff, transparent);
+        background-repeat: repeat;
+        background-size: 200px 100px;
+        animation: sparkle 20s linear infinite;
+        opacity: 0.4;
+        z-index: -1;
+        pointer-events: none;
+    }
+    
+    @keyframes sparkle {
+        from { transform: translateY(0px); }
+        to { transform: translateY(-100px); }
+    }
+    
+    /* Main Header */
     .main-header {
-        font-size: 2.5rem;
-        color: #1f77b4;
+        font-size: 3rem;
+        font-weight: 700;
+        background: linear-gradient(45deg, #64b5f6, #42a5f5, #2196f3, #1976d2);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
         text-align: center;
         margin-bottom: 2rem;
+        text-shadow: 0 0 20px rgba(33, 150, 243, 0.3);
+        animation: glow 3s ease-in-out infinite alternate;
     }
+    
+    @keyframes glow {
+        from { filter: drop-shadow(0 0 10px rgba(33, 150, 243, 0.3)); }
+        to { filter: drop-shadow(0 0 20px rgba(33, 150, 243, 0.6)); }
+    }
+    
+    /* Sidebar Styling */
+    .css-1d391kg {
+        background: rgba(13, 17, 23, 0.95);
+        border-right: 1px solid rgba(100, 181, 246, 0.2);
+        backdrop-filter: blur(10px);
+    }
+    
+    /* Content Area */
+    .main .block-container {
+        background: rgba(255, 255, 255, 0.02);
+        backdrop-filter: blur(10px);
+        border-radius: 20px;
+        border: 1px solid rgba(100, 181, 246, 0.1);
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+        margin-top: 1rem;
+        padding: 2rem;
+    }
+    
+    /* Metric Cards */
     .metric-container {
-        background-color: #f0f2f6;
-        padding: 1rem;
-        border-radius: 0.5rem;
+        background: linear-gradient(135deg, rgba(100, 181, 246, 0.1), rgba(33, 150, 243, 0.05));
+        border: 1px solid rgba(100, 181, 246, 0.2);
+        border-radius: 15px;
+        padding: 1.5rem;
         margin: 0.5rem 0;
+        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+        backdrop-filter: blur(10px);
+        transition: all 0.3s ease;
+    }
+    
+    .metric-container:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 8px 25px rgba(100, 181, 246, 0.3);
+        border-color: rgba(100, 181, 246, 0.4);
+    }
+    
+    /* Tabs */
+    .stTabs [data-baseweb="tab-list"] {
+        background: rgba(13, 17, 23, 0.8);
+        border-radius: 15px;
+        padding: 0.5rem;
+        border: 1px solid rgba(100, 181, 246, 0.2);
+    }
+    
+    .stTabs [data-baseweb="tab"] {
+        background: transparent;
+        border-radius: 10px;
+        color: rgba(255, 255, 255, 0.7);
+        font-weight: 500;
+        transition: all 0.3s ease;
+    }
+    
+    .stTabs [aria-selected="true"] {
+        background: linear-gradient(45deg, #2196f3, #1976d2) !important;
+        color: white !important;
+        box-shadow: 0 4px 15px rgba(33, 150, 243, 0.4);
+    }
+    
+    /* DataFrames */
+    .stDataFrame {
+        background: rgba(255, 255, 255, 0.05);
+        border-radius: 15px;
+        border: 1px solid rgba(100, 181, 246, 0.2);
+        overflow: hidden;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+    }
+    
+    /* Buttons */
+    .stButton > button {
+        background: linear-gradient(45deg, #2196f3, #1976d2);
+        color: white;
+        border: none;
+        border-radius: 25px;
+        padding: 0.75rem 2rem;
+        font-weight: 600;
+        box-shadow: 0 4px 15px rgba(33, 150, 243, 0.3);
+        transition: all 0.3s ease;
+    }
+    
+    .stButton > button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 8px 25px rgba(33, 150, 243, 0.5);
+        background: linear-gradient(45deg, #1976d2, #1565c0);
+    }
+    
+    /* Download Button */
+    .stDownloadButton > button {
+        background: linear-gradient(45deg, #4caf50, #388e3c);
+        color: white;
+        border: none;
+        border-radius: 25px;
+        padding: 0.75rem 2rem;
+        font-weight: 600;
+        box-shadow: 0 4px 15px rgba(76, 175, 80, 0.3);
+        transition: all 0.3s ease;
+    }
+    
+    .stDownloadButton > button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 8px 25px rgba(76, 175, 80, 0.5);
+    }
+    
+    /* Info/Warning/Success boxes */
+    .stAlert {
+        background: rgba(100, 181, 246, 0.1);
+        border: 1px solid rgba(100, 181, 246, 0.3);
+        border-radius: 15px;
+        backdrop-filter: blur(10px);
+    }
+    
+    /* Text Colors */
+    .stMarkdown, .stText {
+        color: rgba(255, 255, 255, 0.9);
+    }
+    
+    /* Selectbox and Slider */
+    .stSelectbox > div > div {
+        background: rgba(13, 17, 23, 0.8);
+        border: 1px solid rgba(100, 181, 246, 0.3);
+        border-radius: 10px;
+        color: white;
+    }
+    
+    .stSlider {
+        color: #2196f3;
+    }
+    
+    /* Plotly Charts */
+    .js-plotly-plot {
+        border-radius: 15px;
+        overflow: hidden;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+    }
+    
+    /* Scrollbar */
+    ::-webkit-scrollbar {
+        width: 8px;
+    }
+    
+    ::-webkit-scrollbar-track {
+        background: rgba(13, 17, 23, 0.5);
+        border-radius: 4px;
+    }
+    
+    ::-webkit-scrollbar-thumb {
+        background: linear-gradient(45deg, #2196f3, #1976d2);
+        border-radius: 4px;
+    }
+    
+    ::-webkit-scrollbar-thumb:hover {
+        background: linear-gradient(45deg, #1976d2, #1565c0);
+    }
+    
+    /* Header with cosmic effect */
+    .cosmic-header {
+        text-align: center;
+        padding: 2rem 0;
+        background: linear-gradient(135deg, rgba(100, 181, 246, 0.1), rgba(33, 150, 243, 0.05));
+        border-radius: 20px;
+        margin-bottom: 2rem;
+        border: 1px solid rgba(100, 181, 246, 0.2);
+        position: relative;
+        overflow: hidden;
+    }
+    
+    .cosmic-header::before {
+        content: '';
+        position: absolute;
+        top: -50%;
+        left: -50%;
+        width: 200%;
+        height: 200%;
+        background: radial-gradient(circle, rgba(100, 181, 246, 0.1) 0%, transparent 70%);
+        animation: rotate 20s linear infinite;
+    }
+    
+    @keyframes rotate {
+        from { transform: rotate(0deg); }
+        to { transform: rotate(360deg); }
+    }
+    
+    .cosmic-title {
+        position: relative;
+        z-index: 1;
+        font-size: 3.5rem;
+        font-weight: 700;
+        background: linear-gradient(45deg, #64b5f6, #42a5f5, #2196f3, #1976d2, #9c27b0, #673ab7);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+        margin-bottom: 1rem;
+        animation: shimmer 3s ease-in-out infinite;
+    }
+    
+    @keyframes shimmer {
+        0%, 100% { background-position: 0% 50%; }
+        50% { background-position: 100% 50%; }
+    }
+    
+    .cosmic-subtitle {
+        position: relative;
+        z-index: 1;
+        font-size: 1.2rem;
+        color: rgba(255, 255, 255, 0.8);
+        font-weight: 300;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -196,18 +444,46 @@ def create_hr_diagram(df, anomaly_data=None, highlight_source=None):
 def main():
     """Main dashboard application."""
     
-    # Header
-    st.markdown('<h1 class="main-header">⭐ Astrophysical Oddball Finder</h1>', 
-                unsafe_allow_html=True)
-    
+    # Enhanced Cosmic Header
     st.markdown("""
-    **Discover unusual stars in the Gaia DR3 dataset using machine learning**
+    <div class="cosmic-header">
+        <h1 class="cosmic-title">🌌 Astrophysical Oddball Finder</h1>
+        <p class="cosmic-subtitle">Discover unusual stellar objects in Gaia DR3 using machine learning</p>
+    </div>
+    """, unsafe_allow_html=True)
     
-    This dashboard allows you to explore stellar anomalies detected using multiple unsupervised ML methods:
-    - **Isolation Forest**: Identifies outliers in high-dimensional feature space
-    - **Autoencoder**: Detects objects with high reconstruction error
-    - **DBSCAN**: Finds objects that don't belong to any cluster
-    """)
+    # Enhanced description with better styling
+    st.markdown("""
+    <div style="
+        background: linear-gradient(135deg, rgba(100, 181, 246, 0.05), rgba(33, 150, 243, 0.02));
+        border: 1px solid rgba(100, 181, 246, 0.2);
+        border-radius: 15px;
+        padding: 1.5rem;
+        margin-bottom: 2rem;
+        backdrop-filter: blur(10px);
+    ">
+        <p style="color: rgba(255, 255, 255, 0.9); font-size: 1.1rem; margin-bottom: 1rem; text-align: center;">
+            🔬 <strong>Advanced ML Pipeline for Stellar Anomaly Detection</strong>
+        </p>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1rem; margin-top: 1rem;">
+            <div style="text-align: center; padding: 1rem;">
+                <div style="font-size: 2rem; margin-bottom: 0.5rem;">🌲</div>
+                <strong style="color: #64b5f6;">Isolation Forest</strong><br>
+                <span style="color: rgba(255, 255, 255, 0.7); font-size: 0.9rem;">High-dimensional outlier detection</span>
+            </div>
+            <div style="text-align: center; padding: 1rem;">
+                <div style="font-size: 2rem; margin-bottom: 0.5rem;">🧠</div>
+                <strong style="color: #42a5f5;">Autoencoder</strong><br>
+                <span style="color: rgba(255, 255, 255, 0.7); font-size: 0.9rem;">Reconstruction error analysis</span>
+            </div>
+            <div style="text-align: center; padding: 1rem;">
+                <div style="font-size: 2rem; margin-bottom: 0.5rem;">🎯</div>
+                <strong style="color: #2196f3;">DBSCAN</strong><br>
+                <span style="color: rgba(255, 255, 255, 0.7); font-size: 0.9rem;">Density-based clustering</span>
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
     
     # Load data
     with st.spinner("Loading data..."):
@@ -227,8 +503,20 @@ def main():
         """)
         return
     
-    # Sidebar controls
-    st.sidebar.header("🔧 Controls")
+    # Enhanced Sidebar controls
+    st.sidebar.markdown("""
+    <div style="
+        background: linear-gradient(135deg, rgba(100, 181, 246, 0.1), rgba(33, 150, 243, 0.05));
+        border: 1px solid rgba(100, 181, 246, 0.3);
+        border-radius: 15px;
+        padding: 1rem;
+        margin-bottom: 1rem;
+        text-align: center;
+    ">
+        <h2 style="color: #64b5f6; margin: 0; font-size: 1.5rem;">🎛️ Mission Control</h2>
+        <p style="color: rgba(255, 255, 255, 0.7); margin: 0.5rem 0 0 0; font-size: 0.9rem;">Configure your anomaly search</p>
+    </div>
+    """, unsafe_allow_html=True)
     
     # Method selection
     available_methods = list(results.keys())
@@ -251,33 +539,80 @@ def main():
     # Get selected results
     selected_results = results[selected_method].head(n_anomalies)
     
-    # Main content area
+    # Enhanced Main content area with cosmic metrics
+    st.markdown("""
+    <div style="
+        background: linear-gradient(135deg, rgba(100, 181, 246, 0.05), rgba(33, 150, 243, 0.02));
+        border: 1px solid rgba(100, 181, 246, 0.2);
+        border-radius: 15px;
+        padding: 1.5rem;
+        margin-bottom: 2rem;
+    ">
+        <h3 style="color: #64b5f6; text-align: center; margin-bottom: 1.5rem;">📊 Mission Statistics</h3>
+    </div>
+    """, unsafe_allow_html=True)
+    
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
-        st.metric(
-            "Total Sources Analyzed", 
-            f"{len(processed_data):,}" if processed_data is not None else "N/A"
-        )
+        total_sources = len(processed_data) if processed_data is not None else 0
+        st.markdown(f"""
+        <div class="metric-container">
+            <div style="text-align: center;">
+                <div style="font-size: 2.5rem; margin-bottom: 0.5rem;">🌌</div>
+                <div style="font-size: 2rem; font-weight: 700; color: #64b5f6; margin-bottom: 0.25rem;">{total_sources:,}</div>
+                <div style="color: rgba(255, 255, 255, 0.8); font-size: 0.9rem;">Total Sources Analyzed</div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
     
     with col2:
-        st.metric(
-            "Anomalies Found", 
-            f"{len(selected_results):,}"
-        )
+        st.markdown(f"""
+        <div class="metric-container">
+            <div style="text-align: center;">
+                <div style="font-size: 2.5rem; margin-bottom: 0.5rem;">🎯</div>
+                <div style="font-size: 2rem; font-weight: 700; color: #42a5f5; margin-bottom: 0.25rem;">{len(selected_results):,}</div>
+                <div style="color: rgba(255, 255, 255, 0.8); font-size: 0.9rem;">Anomalies Displayed</div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
     
     with col3:
-        st.metric(
-            "Detection Method", 
-            selected_method.replace('_', ' ').title()
-        )
+        if selected_results is not None and len(selected_results) > 0:
+            max_score = selected_results['anomaly_score'].max()
+            score_display = f"{max_score:.3f}"
+        else:
+            score_display = "N/A"
+        
+        st.markdown(f"""
+        <div class="metric-container">
+            <div style="text-align: center;">
+                <div style="font-size: 2.5rem; margin-bottom: 0.5rem;">⚡</div>
+                <div style="font-size: 2rem; font-weight: 700; color: #2196f3; margin-bottom: 0.25rem;">{score_display}</div>
+                <div style="color: rgba(255, 255, 255, 0.8); font-size: 0.9rem;">Highest Anomaly Score</div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
     
     with col4:
-        avg_score = selected_results['anomaly_score'].mean()
-        st.metric(
-            "Avg Anomaly Score", 
-            f"{avg_score:.4f}"
-        )
+        method_display = selected_method.replace('_', ' ').title()
+        method_icons = {
+            'Combined': '🎆',
+            'Isolation Forest': '🌲',
+            'Autoencoder': '🧠',
+            'Dbscan': '🎯'
+        }
+        icon = method_icons.get(method_display, '🔬')
+        
+        st.markdown(f"""
+        <div class="metric-container">
+            <div style="text-align: center;">
+                <div style="font-size: 2.5rem; margin-bottom: 0.5rem;">{icon}</div>
+                <div style="font-size: 1.2rem; font-weight: 600; color: #1976d2; margin-bottom: 0.25rem;">{method_display}</div>
+                <div style="color: rgba(255, 255, 255, 0.8); font-size: 0.9rem;">Detection Method</div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
     
     # Tabs for different views
     tab1, tab2, tab3, tab4 = st.tabs(["🌟 HR Diagram", "📊 Anomaly List", "📈 Statistics", "🔍 Source Details"])
